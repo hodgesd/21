@@ -1,7 +1,8 @@
 // Cache-first service worker: the app is one self-contained page, so one cache entry makes it work offline.
 // Bump VERSION whenever index.html changes so phones pick up the new build.
-const VERSION = "bj-v3";
-const FILES = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", "./icon-180.png"];
+const VERSION = "bj-v4";
+const FILES = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", "./icon-180.png",
+  "./fonts/archivo-latin.woff2", "./fonts/ibm-plex-mono-400-latin.woff2", "./fonts/ibm-plex-mono-600-latin.woff2"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(VERSION).then((c) => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== VERSION).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener("fetch", (e) => {

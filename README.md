@@ -45,3 +45,11 @@ pick up the new build.
 Progress lives in the browser's localStorage, per device. Settings → Backup
 copies it to the clipboard and restores it on another device. On iPhone,
 Safari and the home-screen app keep separate storage.
+
+The page makes no third-party requests: its fonts (Archivo and IBM Plex
+Mono, Latin subsets) are served from `fonts/` and cached for offline use.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The fonts in `fonts/` are under the SIL Open
+Font License 1.1; their licenses are alongside them.
