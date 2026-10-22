@@ -75,6 +75,9 @@ button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--gold);
 .actions button:active { transform: scale(.96); }
 .actions button span { font-size: 10px; font-weight: 400; color: var(--ink-dim); letter-spacing: .1em; }
 .actions button:disabled { opacity: .35; cursor: default; }
+/* Key hints where there is a mouse and keyboard, swipe hints on touch screens. */
+.kb { display: none; }
+@media (hover: hover) and (pointer: fine) { .kb { display: inline; } .tc { display: none; } }
 .hint { text-align: center; font-size: 11px; color: var(--ink-dim); margin-top: 10px; line-height: 1.5; }
 
 /* Feedback */
@@ -201,12 +204,12 @@ textarea { width: 100%; box-sizing: border-box; min-height: 90px; border-radius:
   <div class="deck" id="deck">
     <div id="actionView">
       <div class="actions">
-        <button id="aHit" data-a="hit">Hit<span>H · swipe ↑</span></button>
-        <button id="aStand" data-a="stand">Stand<span>S · swipe ↓</span></button>
-        <button id="aDouble" data-a="double">Double<span>D · swipe →</span></button>
-        <button id="aSplit" data-a="split">Split<span>P · swipe ←</span></button>
+        <button id="aHit" data-a="hit">Hit<span><span class="kb">↑ or H</span><span class="tc">swipe ↑</span></span></button>
+        <button id="aStand" data-a="stand">Stand<span><span class="kb">↓ or S</span><span class="tc">swipe ↓</span></span></button>
+        <button id="aDouble" data-a="double">Double<span><span class="kb">→ or D</span><span class="tc">swipe →</span></span></button>
+        <button id="aSplit" data-a="split">Split<span><span class="kb">← or P</span><span class="tc">swipe ←</span></span></button>
       </div>
-      <div class="hint">Swipe on the cards or tap a button. Keys H · S · D · P<br>After the verdict, tap anywhere to deal the next hand.</div>
+      <div class="hint"><span class="tc">Swipe on the cards or tap a button.<br>After the verdict, tap anywhere to deal the next hand.</span><span class="kb">Arrow keys or H · S · D · P to play.<br>After the verdict, Enter deals the next hand.</span></div>
     </div>
     <div id="fbView" class="fb" hidden></div>
   </div>
@@ -243,6 +246,7 @@ textarea { width: 100%; box-sizing: border-box; min-height: 90px; border-radius:
     <div class="toggle"><div>Card animation<small>Cards fly in from the shoe and flip</small></div><button class="sw" id="swAnim" role="switch" aria-checked="true" aria-label="Card animation"></button></div>
     <div class="toggle"><div>Explain correct answers too<small>Otherwise the Why box only appears on a miss</small></div><button class="sw" id="swWhyAll" role="switch" aria-checked="false" aria-label="Explain correct answers"></button></div>
   </div>
+  <div class="setrow"><label>Keyboard</label><p>↑ Hit · ↓ Stand · → Double · ← Split (or H, S, D, P). Enter, Space or N deals the next hand. Esc closes a panel.</p></div>
   <div class="setrow"><label>Home screen</label><p>iPhone: open this page in Safari, tap Share, then Add to Home Screen. Android Chrome: menu, then Add to Home screen. When hosted on your own server it opens full-screen like an app; from claude.ai it opens as a bookmark.</p></div>
   <div class="setrow"><label>Rules</label><p>6 decks · dealer hits soft 17 · double on any two cards · double after split · split up to 4 hands · no resplitting aces · no surrender · dealer peeks for blackjack. EVs are per unit bet, computed from the exact shoe composition after the three visible cards are removed.</p></div>
   <div class="setrow"><label>Backup</label>
@@ -457,7 +461,7 @@ function showFeedback(chosen, cell, ok, endedStreak) {
   html += `<div class="margin">${ok ? `Best play beats the next option by ${margin.toFixed(3)}` : `Your pick cost ${(evs[0][1] - cell[chosen]).toFixed(3)} per unit bet`}</div>`;
   const peek = (current.up === "10" || current.up === "A") ? " (no blackjack)" : "";
   html += `<div class="odds"><div class="odd"><div class="k">Dealer ${current.up}</div><div class="v num">${pct(d.bust)}</div><div class="s">busts · makes 17+ ${pct(1 - d.bust)}${peek}</div></div><div class="odd"><div class="k">You, one card</div><div class="v num">${soft ? "0%" : pct(cell.bust)}</div><div class="s">${soft ? "soft hand, cannot bust" : "chance to bust on a hit"}</div></div></div>`;
-  html += `<button class="deal" id="btnDeal">Deal next</button>`;
+  html += `<button class="deal" id="btnDeal">Deal next<span class="kb"> · Enter</span></button>`;
   const fb = $("fbView");
   fb.innerHTML = html; fb.hidden = false;
   $("actionView").hidden = true;
@@ -557,10 +561,15 @@ document.addEventListener("click", (e) => { if ($("fbView").hidden) return; if (
 document.addEventListener("keydown", (e) => {
   if (e.target.tagName === "TEXTAREA") return;
   if (!$("chartPanel").hidden || !$("statsPanel").hidden || !$("settingsPanel").hidden) { if (e.key === "Escape") closePanels(); return; }
+  // Leave browser shortcuts (Cmd+R, Ctrl+S…) alone, and ignore auto-repeat so a held key answers or deals once.
+  if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
   const k = e.key.toLowerCase();
   if (!$("fbView").hidden) { if (k === " " || k === "enter" || k === "n") { e.preventDefault(); deal(); } return; }
-  const map = { h: "hit", s: "stand", d: "double", p: "split" };
-  if (map[k]) answer(map[k]);
+  // Arrows match the swipe directions. Enter and Space must not fall through to a still-focused action button,
+  // or the Enter that dealt this hand would answer it on the next press.
+  const map = { h: "hit", s: "stand", d: "double", p: "split", arrowup: "hit", arrowdown: "stand", arrowright: "double", arrowleft: "split" };
+  if (map[k]) { e.preventDefault(); answer(map[k]); }
+  else if (k === " " || k === "enter") e.preventDefault();
 });
 // swipe: up hit, down stand, right double, left split; any swipe on feedback deals the next hand
 let sw0 = null;
