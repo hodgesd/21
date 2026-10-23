@@ -209,10 +209,11 @@ textarea { width: 100%; box-sizing: border-box; min-height: 90px; border-radius:
   <div class="deck" id="deck">
     <div id="actionView">
       <div class="actions">
+        <!-- Left to right in swipe/arrow order: ← ↑ ↓ → -->
+        <button id="aSplit" data-a="split">Split<span><span class="kb">← or P</span><span class="tc">swipe ←</span></span></button>
         <button id="aHit" data-a="hit">Hit<span><span class="kb">↑ or H</span><span class="tc">swipe ↑</span></span></button>
         <button id="aStand" data-a="stand">Stand<span><span class="kb">↓ or S</span><span class="tc">swipe ↓</span></span></button>
         <button id="aDouble" data-a="double">Double<span><span class="kb">→ or D</span><span class="tc">swipe →</span></span></button>
-        <button id="aSplit" data-a="split">Split<span><span class="kb">← or P</span><span class="tc">swipe ←</span></span></button>
       </div>
       <div class="hint"><span class="tc">Swipe on the cards or tap a button.<br>After the verdict, tap anywhere to deal the next hand.</span><span class="kb">Arrow keys or H · S · D · P to play.<br>After the verdict, Enter deals the next hand.</span></div>
     </div>
@@ -251,13 +252,18 @@ textarea { width: 100%; box-sizing: border-box; min-height: 90px; border-radius:
     <div class="toggle"><div>Card animation<small>Cards fly in from the shoe and flip</small></div><button class="sw" id="swAnim" role="switch" aria-checked="true" aria-label="Card animation"></button></div>
     <div class="toggle"><div>Explain correct answers too<small>Otherwise the Why box only appears on a miss</small></div><button class="sw" id="swWhyAll" role="switch" aria-checked="false" aria-label="Explain correct answers"></button></div>
   </div>
-  <div class="setrow"><label>Keyboard</label><p>↑ Hit · ↓ Stand · → Double · ← Split (or H, S, D, P). Enter, Space or N deals the next hand. Esc closes a panel.</p></div>
+  <div class="setrow"><label>Keyboard</label><p>← Split · ↑ Hit · ↓ Stand · → Double (or P, H, S, D). Enter, Space or N deals the next hand. Esc closes a panel.</p></div>
   <div class="setrow"><label>Home screen</label><p>iPhone: open this page in Safari, tap Share, then Add to Home Screen. Android Chrome: menu, then Add to Home screen. When hosted on your own server it opens full-screen like an app; from claude.ai it opens as a bookmark.</p></div>
   <div class="setrow"><label>Rules</label><p>6 decks · dealer hits soft 17 · double on any two cards · double after split · split up to 4 hands · no resplitting aces · no surrender · dealer peeks for blackjack. EVs are per unit bet, computed from the exact shoe composition after the three visible cards are removed.</p></div>
   <div class="setrow"><label>Backup</label>
     <div class="btns"><button id="btnExport">Copy backup to clipboard</button><button id="btnImport">Restore from text below</button><button id="btnReset" class="danger">Reset all progress</button></div>
     <textarea id="ioText" placeholder="Paste a backup here, then tap Restore."></textarea>
-    <p>Progress is stored in this browser only. Copy a backup now and then if you switch phones.</p>
+    <p>Restore and reset apply to every device that syncs. The server keeps the full hand history either way.</p>
+  </div>
+  <div class="setrow"><label>Server sync</label>
+    <p id="syncStatus">Not synced yet.</p>
+    <div class="btns"><button id="btnSync">Sync now</button><a class="linkbtn" href="api/hands.csv" download="bj-hands.csv">Download hand history (CSV)</a></div>
+    <p>Every hand you answer is logged on your server and shared by every device that opens this site, so progress follows you between phone and computer. Offline, hands queue on this device and upload later.</p>
   </div>
 </div></div>
 
@@ -282,8 +288,21 @@ try {
   if (raw) { S = Object.assign(blank(), JSON.parse(raw)); if (S.mode === "adaptive") S.mode = "spaced"; }
 } catch (e) {}
 function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch (e) {} }
+// Progress is everything a hand changes; the rest of S is per-device settings.
+const PROGRESS = ["cells", "lifetime", "sessions", "n", "streak", "bestStreak", "conf"];
+const progressOf = (st) => Object.fromEntries(PROGRESS.map(k => [k, st[k]]));
+const settingsOf = (st) => Object.fromEntries(Object.keys(st).filter(k => !PROGRESS.includes(k)).map(k => [k, st[k]]));
+// A backup or server state holds only numbers, so drop every string: junk, or markup aimed at innerHTML.
+const noStrings = (k, v) => typeof v === "string" ? undefined : v;
+function cleanProgress(obj) { return progressOf(Object.assign(blank(), JSON.parse(JSON.stringify(obj || {}), noStrings))); }
+function randId() { if (crypto.randomUUID) return crypto.randomUUID(); const b = crypto.getRandomValues(new Uint8Array(16)); return [...b].map(x => x.toString(16).padStart(2, "0")).join(""); }
+const DEVICE = (() => {
+  let d = localStorage.getItem("bjdrill.device");
+  if (!d) { const ua = navigator.userAgent; d = (/iPhone/.test(ua) ? "iphone" : /iPad/.test(ua) ? "ipad" : /Android/.test(ua) ? "android" : /Mac/.test(ua) ? "mac" : "web") + "-" + randId().replace(/-/g, "").slice(0, 6); try { localStorage.setItem("bjdrill.device", d); } catch (e) {} }
+  return d;
+})();
 function cellStat(row, up) { S.cells[row] = S.cells[row] || {}; return S.cells[row][up] = S.cells[row][up] || { seen: 0, correct: 0, recent: [], step: 0, due: 0 }; }
-const session = { seen: 0, correct: 0, started: Date.now() };
+const session = { seen: 0, correct: 0, started: Date.now(), sid: randId().slice(0, 13) };
 
 // ---------- helpers ----------
 const rowOf = (k) => CHART.rows.find(r => r.key === k);
@@ -311,10 +330,12 @@ function pickCell() {
   for (const p of pool) { x -= p[2]; if (x <= 0) return p; }
   return pool[pool.length - 1];
 }
-function schedule(cs, ok) {
+function unitHash(id) { let x = 2166136261; for (let i = 0; i < id.length; i++) x = Math.imul(x ^ id.charCodeAt(i), 16777619); return (x >>> 0) / 4294967296; }
+function schedule(cs, ok, id) {
   if (ok) cs.step = Math.min((cs.step || 0) + 1, STEPS.length - 1); else cs.step = 0;
   const base = ok ? STEPS[cs.step] : 3;
-  const jitter = 1 + (Math.random() * 0.5 - 0.25);
+  // Deterministic per hand (not Math.random) so every device that folds this hand lands on the same due.
+  const jitter = 1 + (unitHash(id) * 0.5 - 0.25);
   cs.due = S.n + Math.max(2, Math.round(base * jitter));
 }
 
@@ -332,7 +353,6 @@ function deal() {
   const upIdx = up === "A" ? 0 : up === "10" ? 9 : parseInt(up) - 1;
   const cs = (S.cells[row] || {})[up];
   current = { row, up, c1, c2, cards: [p1, p2], dealer: makeCard(upIdx, -1), wasDue: !!(cs && cs.seen && cs.due <= S.n) };
-  S.n++; save();
   render();
 }
 function cardHTML(c, i) {
@@ -427,17 +447,35 @@ function answer(a) {
   const cell = CHART.cells[current.row][current.up];
   if (a === "split" && cell.split === undefined) return;
   const ok = a === cell.best;
-  const cs = cellStat(current.row, current.up);
-  cs.seen++; if (ok) cs.correct++; cs.recent.push(ok ? 1 : 0); if (cs.recent.length > 10) cs.recent.shift();
-  schedule(cs, ok);
-  S.lifetime.seen++; if (ok) S.lifetime.correct++;
+  const cardTxt = (c) => c.r + c.suit;
+  const h = { id: randId(), ts: Date.now(), dev: DEVICE, sid: session.sid, mode: S.mode, row: current.row, up: current.up,
+    cards: `${current.cards.map(cardTxt).join(" ")} v ${cardTxt(current.dealer)}`, chosen: a, best: cell.best, ok };
+  const endedStreak = applyHand(h);
   session.seen++; if (ok) session.correct++;
-  let endedStreak = 0;
-  if (ok) { S.streak++; if (S.streak > S.bestStreak) S.bestStreak = S.streak; }
-  else { endedStreak = S.streak; S.streak = 0; const k = a + ">" + cell.best; S.conf[k] = (S.conf[k] || 0) + 1; }
+  queueHand(h);
   save(); updateScore();
   beep(ok); if (!ok) buzz();
   showFeedback(a, cell, ok, endedStreak);
+}
+// Fold one hand into S. Local answers and hands pulled from the server both come through here,
+// so progress on every device is the same function of the same hands.
+function applyHand(h) {
+  const cell = (CHART.cells[h.row] || {})[h.up];
+  if (!cell || !ACTIONS.includes(h.chosen) || cell[h.chosen] === undefined) return 0;
+  const ok = h.chosen === cell.best;
+  const cs = cellStat(h.row, h.up);
+  S.n++;
+  cs.seen++; if (ok) cs.correct++; cs.recent.push(ok ? 1 : 0); if (cs.recent.length > 10) cs.recent.shift();
+  schedule(cs, ok, h.id);
+  S.lifetime.seen++; if (ok) S.lifetime.correct++;
+  let endedStreak = 0;
+  if (ok) { S.streak++; if (S.streak > S.bestStreak) S.bestStreak = S.streak; }
+  else { endedStreak = S.streak; S.streak = 0; const k = h.chosen + ">" + cell.best; S.conf[k] = (S.conf[k] || 0) + 1; }
+  let ss = null;
+  for (let i = S.sessions.length - 1; i >= 0 && i >= S.sessions.length - 8; i--) if (S.sessions[i].sid === h.sid) { ss = S.sessions[i]; break; }
+  if (!ss) { ss = { sid: h.sid, date: h.ts, seen: 0, correct: 0 }; S.sessions.push(ss); if (S.sessions.length > 50) S.sessions.shift(); }
+  ss.seen++; if (ok) ss.correct++;
+  return endedStreak;
 }
 function fmt(v) { return (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(3); }
 function pct(v) { return Math.round(v * 100) + "%"; }
@@ -536,13 +574,14 @@ function buildStats() {
   for (const r of CHART.rows) for (const u of UPS) { const c = (S.cells[r.key] || {})[u]; const a = recentAcc(c); if (a !== null && a < 0.8) weak.push([shortLabel(r.key) + " vs " + u, a, NAMES[CHART.cells[r.key][u].best]]); }
   weak.sort((x, y) => x[1] - y[1]);
   $("weakList").innerHTML = weak.length ? weak.slice(0, 12).map(w => `<div><span>${w[0]} <span style="color:var(--ink-dim)">→ ${w[2]}</span></span><span class="num">${pct(w[1])}</span></div>`).join("") : `<div><span>Nothing under 80% yet</span></div>`;
-  const sess = S.sessions.slice(-8).reverse();
+  const sess = S.sessions.filter(s => s.seen >= 5).slice(-8).reverse();
   $("sessList").innerHTML = sess.length ? sess.map(s => `<div><span>${new Date(s.date).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span><span class="num">${s.correct} / ${s.seen} · ${pct(s.correct / s.seen)}</span></div>`).join("") : `<div><span>No finished sessions yet</span></div>`;
 }
-function flushSession() {
-  if (session.seen >= 5) { S.sessions.push({ date: session.started, seen: session.seen, correct: session.correct }); if (S.sessions.length > 50) S.sessions.shift(); save(); }
-}
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") { flushSession(); session.seen = 0; session.correct = 0; session.started = Date.now(); updateScore(); } });
+// Leaving the app ends the session; coming back starts a new one and pulls hands played elsewhere.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") { session.seen = 0; session.correct = 0; session.started = Date.now(); session.sid = randId().slice(0, 13); updateScore(); }
+  else sync();
+});
 
 // ---------- settings ----------
 function setMode(m) {
@@ -560,6 +599,107 @@ bindSwitch("swAnim", "anim");
 bindSwitch("swWhyAll", "whyAll");
 function toast(msg) { const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 1800); }
 
+// ---------- server sync ----------
+// The server (server/server.py) keeps every hand plus one baseline state. Progress here is
+// baseline + every hand after baseline.fromSeq, folded by applyHand, so devices converge.
+// Hands wait in OUTBOX until the server has them, so the drill works offline as before.
+// SY.cursor is the last server seq folded in; SY.mine lists hands this device folded at
+// answer time, so they're skipped when they come back from the server.
+const API = "api/";
+let SY = { cursor: 0, rev: -1, mine: [], last: 0, err: "" };
+let OUTBOX = [];
+try {
+  const raw = localStorage.getItem("bjdrill.sync");
+  if (raw) SY = Object.assign(SY, JSON.parse(raw));
+  // First run with sync: progress made before it existed goes up once, merged into the server baseline.
+  // Saved at once: if this snapshot were retaken on a later load, it would include hands played since.
+  else { if (S.lifetime.seen > 0) SY.legacy = progressOf(S); saveSync(); }
+  OUTBOX = JSON.parse(localStorage.getItem("bjdrill.outbox") || "[]");
+} catch (e) {}
+function saveSync() { try { localStorage.setItem("bjdrill.sync", JSON.stringify(SY)); localStorage.setItem("bjdrill.outbox", JSON.stringify(OUTBOX)); } catch (e) {} }
+function queueHand(h) { OUTBOX.push(h); SY.mine.push(h.id); saveSync(); clearTimeout(queueHand.t); queueHand.t = setTimeout(sync, 1500); }
+async function api(path, method = "GET", body) {
+  const r = await fetch(API + path, { method, cache: "no-store", headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  if (!r.ok) throw new Error(`${method} ${path}: HTTP ${r.status}`);
+  return r.json();
+}
+async function postHands(list) { for (let i = 0; i < list.length; i += 500) await api("hands", "POST", { hands: list.slice(i, i + 500) }); }
+// Add one device's pre-sync progress into another's. Counts add; due/step take the more urgent.
+function mergeProgress(a, b) {
+  const m = cleanProgress(a), x = cleanProgress(b);
+  for (const row in x.cells) for (const up in x.cells[row]) {
+    const p = x.cells[row][up], q = (m.cells[row] = m.cells[row] || {})[up];
+    m.cells[row][up] = !q ? p : { seen: q.seen + p.seen, correct: q.correct + p.correct, recent: q.recent.concat(p.recent).slice(-10), step: Math.min(q.step, p.step), due: Math.min(q.due, p.due) };
+  }
+  m.lifetime = { seen: m.lifetime.seen + x.lifetime.seen, correct: m.lifetime.correct + x.lifetime.correct };
+  for (const k in x.conf) m.conf[k] = (m.conf[k] || 0) + x.conf[k];
+  m.sessions = m.sessions.concat(x.sessions).sort((p, q) => p.date - q.date).slice(-50);
+  m.n = Math.max(m.n, x.n); m.bestStreak = Math.max(m.bestStreak, x.bestStreak);
+  return m;
+}
+// Recompute progress from the server: baseline, then every hand after it, then hands still in the outbox.
+async function rebuild() {
+  const b = await api("baseline");
+  const hands = []; let after = b.fromSeq, more = true;
+  while (more) {
+    const r = await api(`hands?after=${after}`);
+    if (r.rev !== b.rev) throw new Error("baseline changed mid-rebuild");
+    hands.push(...r.hands); if (r.hands.length) after = r.hands[r.hands.length - 1].seq; more = r.more;
+  }
+  S = Object.assign(blank(), settingsOf(S), cleanProgress(b.state));
+  for (const h of hands) applyHand(h);
+  for (const h of OUTBOX) applyHand(h);
+  Object.assign(SY, { rev: b.rev, cursor: after, mine: OUTBOX.map(h => h.id) });
+}
+// One sync at a time; a request made mid-sync (a reset, a new hand) runs another pass after it.
+let syncing = null, syncAgain = false;
+function sync() {
+  if (syncing) { syncAgain = true; return syncing; }
+  return syncing = (async () => { do { syncAgain = false; await doSync(); } while (syncAgain && !SY.err); })().finally(() => { syncing = null; renderSync(); });
+}
+async function doSync() {
+  try {
+    if (SY.legacy) {
+      const b = await api("baseline");
+      await api("baseline", "PUT", { expectRev: b.rev, reset: false, state: b.state ? mergeProgress(b.state, SY.legacy) : cleanProgress(SY.legacy) });
+      delete SY.legacy; SY.rev = -1; saveSync();
+    }
+    // A reset or restore made here: first the hands played before it, then the new baseline,
+    // which starts the fold after them. Hands played since then are in OUTBOX and follow.
+    if (SY.pending) {
+      await postHands(SY.pending.hands);
+      await api("baseline", "PUT", { reset: true, state: SY.pending.state });
+      delete SY.pending; SY.rev = -1; saveSync();
+    }
+    const sending = new Set(OUTBOX);
+    await postHands([...sending]);
+    OUTBOX = OUTBOX.filter(h => !sending.has(h)); saveSync();
+    // Pull. Own hands coming back were folded at answer time; drop them from SY.mine as they arrive
+    // (filtering, not replacing, so hands answered during these awaits stay listed).
+    let r = await api(`hands?after=${SY.cursor}`);
+    while (r.rev === SY.rev) {
+      const mine = new Set(SY.mine), back = new Set();
+      for (const h of r.hands) { if (mine.has(h.id)) back.add(h.id); else applyHand(h); SY.cursor = h.seq; }
+      SY.mine = SY.mine.filter(id => !back.has(id));
+      if (!r.more) break;
+      r = await api(`hands?after=${SY.cursor}`);
+    }
+    if (r.rev !== SY.rev) await rebuild();
+    Object.assign(SY, { last: Date.now(), err: "" });
+    save(); saveSync(); updateScore();
+    if (!$("statsPanel").hidden) buildStats();
+    if (!$("chartPanel").hidden) buildChart();
+  } catch (e) { SY.err = e.message || String(e); saveSync(); }
+}
+function renderSync() {
+  const el = $("syncStatus"); if (!el) return;
+  const waiting = OUTBOX.length + (SY.pending ? SY.pending.hands.length : 0);
+  const w = waiting ? ` ${waiting} hand${waiting === 1 ? "" : "s"} waiting to upload.` : "";
+  const when = SY.last ? new Date(SY.last).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "never";
+  el.textContent = SY.err ? `Can't reach the server (${SY.err}). Last sync: ${when}.${w} Hands keep queuing and upload when it's back.` : `Synced ${when}. Every hand is logged on the server.${w}`;
+}
+window.addEventListener("online", sync);
+
 // ---------- wiring ----------
 document.querySelectorAll(".actions button").forEach(b => b.addEventListener("click", () => answer(b.dataset.a)));
 document.addEventListener("click", (e) => { if ($("fbView").hidden) return; if (e.target.closest("button, .panel, .toast")) return; deal(); });
@@ -576,7 +716,7 @@ document.addEventListener("keydown", (e) => {
   if (map[k]) { e.preventDefault(); answer(map[k]); }
   else if (k === " " || k === "enter") e.preventDefault();
 });
-// swipe: up hit, down stand, right double, left split; any swipe on feedback deals the next hand
+// swipe: left split, up hit, down stand, right double; any swipe on feedback deals the next hand
 let sw0 = null;
 function swipeStart(e) { const t = e.touches ? e.touches[0] : e; sw0 = { x: t.clientX, y: t.clientY, t: Date.now() }; }
 function swipeEnd(e) {
@@ -602,19 +742,29 @@ $("btnExport").addEventListener("click", () => {
 });
 $("btnImport").addEventListener("click", () => {
   // The reviver drops every string except mode: a backup holds only numbers, so any other string is junk or markup aimed at innerHTML.
-  try { const obj = JSON.parse($("ioText").value, (k, v) => typeof v === "string" && k !== "mode" ? undefined : v); if (!obj.cells || !obj.lifetime) throw 0; if (!["spaced", "random", "hard", "soft", "pair", "adaptive"].includes(obj.mode)) obj.mode = "spaced"; S = Object.assign(blank(), obj); if (S.mode === "adaptive") S.mode = "spaced"; save(); setMode(S.mode); updateScore(); toast("Progress restored"); }
+  try { const obj = JSON.parse($("ioText").value, (k, v) => typeof v === "string" && k !== "mode" ? undefined : v); if (!obj.cells || !obj.lifetime) throw 0; if (!["spaced", "random", "hard", "soft", "pair", "adaptive"].includes(obj.mode)) obj.mode = "spaced"; S = Object.assign(blank(), obj); if (S.mode === "adaptive") S.mode = "spaced"; save(); newBaseline(); setMode(S.mode); updateScore(); toast("Progress restored"); }
   catch (e) { toast("That text is not a valid backup"); }
 });
+// Restore and reset replace progress on every device: the server starts a new baseline after the
+// hands logged so far. The hand log itself is kept.
+function newBaseline() {
+  delete SY.legacy;
+  SY.pending = { state: progressOf(S), hands: (SY.pending ? SY.pending.hands : []).concat(OUTBOX) };
+  OUTBOX = []; SY.mine = []; saveSync(); sync();
+}
+$("btnSync").addEventListener("click", () => sync().then(() => toast(SY.err ? "Sync failed" : "Synced")));
 let resetArmed = false;
 $("btnReset").addEventListener("click", (e) => {
   if (!resetArmed) { resetArmed = true; e.target.textContent = "Tap again to confirm reset"; setTimeout(() => { resetArmed = false; e.target.textContent = "Reset all progress"; }, 3000); return; }
   const keep = { sound: S.sound, haptic: S.haptic, anim: S.anim, whyAll: S.whyAll };
-  S = Object.assign(blank(), keep); save(); setMode("spaced"); session.seen = 0; session.correct = 0; updateScore(); resetArmed = false; e.target.textContent = "Reset all progress"; toast("Progress cleared");
+  S = Object.assign(blank(), keep); save(); newBaseline(); setMode("spaced"); session.seen = 0; session.correct = 0; updateScore(); resetArmed = false; e.target.textContent = "Reset all progress"; toast("Progress cleared");
 });
 
 setMode(S.mode || "spaced");
 updateScore();
+renderSync();
 deal();
+sync();
 </script>
 
 <script>
