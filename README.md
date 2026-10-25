@@ -40,7 +40,8 @@ python3 -m http.server 8000   # then open http://localhost:8000
 ```
 
 When you change `index.html`, bump `VERSION` in `sw.js` so installed copies
-pick up the new build.
+pick up the new build, and run the tests with `node --test` (no dependencies;
+they load the page's script under a stub DOM).
 
 The buttons sit left to right in the same order as the arrows and swipes:
 ← Split, ↑ Hit, ↓ Stand, → Double.

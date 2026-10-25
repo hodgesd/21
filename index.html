@@ -350,6 +350,8 @@ function deal() {
   const comp = r.comps[rnd(r.comps.length)];
   let [c1, c2] = Math.random() < 0.5 ? comp : [comp[1], comp[0]];
   const p1 = makeCard(c1, -1), p2 = makeCard(c2, c1 === c2 ? p1.s : -1);
+  // A pair is two cards of the same rank: a ten-pair is Q,Q or K,K, never Q,10.
+  if (c1 === c2) p2.r = p1.r;
   const upIdx = up === "A" ? 0 : up === "10" ? 9 : parseInt(up) - 1;
   const cs = (S.cells[row] || {})[up];
   current = { row, up, c1, c2, cards: [p1, p2], dealer: makeCard(upIdx, -1), wasDue: !!(cs && cs.seen && cs.due <= S.n) };
@@ -363,7 +365,7 @@ function render() {
   $("dealerRow").innerHTML = cardHTML(current.dealer, 2) + `<div class="card back${S.anim ? " anim" : ""}" style="animation-delay:330ms"></div>`;
   $("playerRow").innerHTML = current.cards.map(cardHTML).join("");
   $("handTotal").innerHTML = `<b>${shortLabel(current.row)}</b> vs dealer ${current.up}`;
-  $("aSplit").disabled = rowType(current.row) !== "pair";
+  $("aSplit").disabled = current.cards[0].r !== current.cards[1].r;
   $("fbView").hidden = true;
   $("actionView").hidden = false;
 }
