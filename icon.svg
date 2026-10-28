@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- App icon: two fanned cards reading 2 and 1. The fan is scaled to sit inside the maskable
+       safe zone (centre circle, 80% of the width) so Android masks do not clip the card corners.
+       Text is set in Archivo (fonts/archivo-latin.woff2); render with that font loaded. -->
+  <rect width="512" height="512" fill="#143427"/>
+  <g transform="translate(256,256) scale(0.84) translate(-256,-256)">
+  <g transform="translate(174,274) rotate(-13)">
+    <rect x="-98" y="-134" width="196" height="268" rx="26" fill="#fbf7ee"/>
+    <text x="-26" y="6" font-family="Archivo" font-weight="800" font-size="180" fill="#1a1b20" text-anchor="middle" dominant-baseline="central">2</text>
+  </g>
+  <g transform="translate(336,246) rotate(13)">
+    <rect x="-98" y="-134" width="196" height="268" rx="26" fill="#fbf7ee" stroke="#143427" stroke-width="14"/>
+    <text x="14" y="6" font-family="Archivo" font-weight="800" font-size="180" fill="#c6302a" text-anchor="middle" dominant-baseline="central">1</text>
+  </g>
+  </g>
+</svg>
